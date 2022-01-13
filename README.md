@@ -169,9 +169,9 @@ M2
 (end)
 ```
 
-Use a tool like [nc viewer](https://ncviewer.com/) to check the GCode:
+Use a tool like [nc viewer](https://ncviewer.com/) to check the GCode (looks like this):
 
-
+![alt text](https://github.com/richard-senior/GML/blob/main/ghpic.png?raw=true)
 
 ## contributing
 I realise this code is a mess. I literally hacked it together to perform a task I needed doing at the time.
