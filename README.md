@@ -232,7 +232,9 @@ foo.burp(outfile)
 ```
 
 Gives:
+
 ![alt text](https://github.com/richard-senior/GML/blob/main/scale.png?raw=true)
+
 
 ### chaining functions
 You can perform multiple operations as follows:
