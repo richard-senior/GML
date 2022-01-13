@@ -223,16 +223,16 @@ Gives:
 ![alt text](https://github.com/richard-senior/GML/blob/main/ext.png?raw=true)
 
 ### scale
+
 ```
 foo = GrblCommand.processGrbl("a.nc","a_.nc")
 # Scales the entire file by a factor of n (so 2 would be twice as big, 0.5 would be twice as small)
-foo = foo.scale(2)
+foo = foo.scale(0.5)
 foo.burp(outfile)
 ```
 
 Gives:
 ![alt text](https://github.com/richard-senior/GML/blob/main/scale.png?raw=true)
-
 
 ### chaining functions
 You can perform multiple operations as follows:
