@@ -170,8 +170,68 @@ M2
 ```
 
 Use a tool like [nc viewer](https://ncviewer.com/) to check the GCode (looks like this):
+Note that in future hopefully you will be able to directly export to SVG rather than use NC Viewer etc.
 
 ![alt text](https://github.com/richard-senior/GML/blob/main/ghpic.png?raw=true)
+
+Now we can use GrblCommand to modify the GCode directly.
+
+### Rotate
+So perhaps we want to rotate the letter (to fit the blank material better etc.):
+
+```
+foo = GrblCommand.processGrbl("a.nc","a_.nc")
+# rotate 45 degrees about the x=0 y=0 coordinate
+foo = foo.rotate(45, 0, 0)
+foo.burp(outfile)
+```
+
+Check the output in [nc viewer](https://ncviewer.com/) gives:
+
+![alt text](https://github.com/richard-senior/GML/blob/main/arot.png?raw=true)
+
+### translate
+
+Maybe you need to just move the letter right?
+
+```
+foo = GrblCommand.processGrbl("a.nc","a_.nc")
+# move the letter right by 10 units (mm) (negative for left/up)
+foo = foo.translate(10,0)
+foo.burp(outfile)
+```
+
+Gives:
+![alt text](https://github.com/richard-senior/GML/blob/main/tran.png?raw=true)
+
+### extrude
+Perhaps you wish to iteratively deepen the path?
+
+```
+#each iteration will be 0.2mm deeper than the last
+GrblCommand.depth_step = -0.2
+foo = GrblCommand.processGrbl("a.nc","a_.nc")
+# make three passes, the True ('by block' param is used when there are multiple blocks in the source file)
+foo = foo.extrude(3, True)
+foo.burp(outfile)
+```
+
+Gives:
+![alt text](https://github.com/richard-senior/GML/blob/main/ext.png?raw=true)
+
+### future
+Hopefully I'll provide:
+```
+# Iteratively fill any closed path by dilating inwards with each iteration being 2mm smaller
+# until it is not possible to create another dilation
+# That is: 'fill the path' by dilating.
+GrblCommand.dilate(-2)
+
+# Hatch fill any closed path assuming a tool diameter of 1mm
+GrblCommand.hatch(1)
+```
+
+etc.
 
 ## contributing
 I realise this code is a mess. I literally hacked it together to perform a task I needed doing at the time.
