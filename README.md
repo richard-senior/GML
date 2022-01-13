@@ -31,7 +31,7 @@ the paths to a .nc file.
 You can find many videos on YouTube to demonstrate this by searching simply for "Inkscape GCodeTools".
 
 Create a python file and write code such as:
-'''python
+```python
 # import the main class of this tool set
 import GrblCommand.GrblCommand
 
@@ -44,4 +44,4 @@ GrblCommand.autoBlockSort = True
 # process the nc file exported from Inkscape
 foo = GrblCommand.processGrbl("/temp/raw.nc","/temp/processed.nc")
 # You may use the response (foo) to continue working on the GCode if desired, or just ignore it.
-'''
+```
