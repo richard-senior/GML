@@ -15,16 +15,25 @@ blank material you currently have etc.)
 
 Or you may wish for the machine to return to zero after every path cut (so you can trial something) etc.
 
+Intended future functionality includes:
+* Full lexical parsing (python PLY lex/yacc) of GCode (plus bespoke extensions) syntax
+* Import directly from SVG (no need for GCodeTools export) and export to SVG (for quick visualisation)
+* Contributing (or doing something similar) to GCodeTools (adding another set of post processing methods?)
+* more manipulation functions including : 
+  * auto path fill using cross hatch or path dilation (the eggbot tools are unreliable)
+  * Auto tool diameter change refactoring
+  * ..
+  
+
 ## Current Funtionality
 * Parses output (.nc) from the [Inkscape GCodeTools extension](https://github.com/cnc-club/gcodetools)
   Breaks the code into 'blocks' based upon various hueristics (z axis up/down, G00 codes, M5 etc.)
-  Allows manipulation of code or blocks of code (extrude, translate, rotate.. more to come)
+  Allows manipulation of code or blocks of code (extrude, translate, rotate, reverse more to come)
   Auto adds standard headers (start spindle etc.) and footers (return to x0,y0,z0 ready for next pass)
-  Eventually will provide various export formats such as SVG etc.
 * Parses output from the [Python svg-to-gcode library](https://pypi.org/project/svg-to-gcode/)
   Blockifies it (as with GCodeTools) and provides the same manipulation functionality.
   
-## Example Usage
+## Usage
 
 Begin by drawing the paths to engrave in Inkscape and using the GCodeTools plugin to export
 the paths to a .nc file.
@@ -45,3 +54,13 @@ GrblCommand.autoBlockSort = True
 foo = GrblCommand.processGrbl("/temp/raw.nc","/temp/processed.nc")
 # You may use the response (foo) to continue working on the GCode if desired, or just ignore it.
 ```
+
+## example
+
+
+
+## contributing
+I realise this code is a mess. I literally hacked it together to perform a task I needed doing at the time.
+I want to begin refactoring this to use PLY for the parsing of the GCODE import, perhaps use Lexx to break
+the code into blocks based on various hueristics, rather than by postprocessing LexToken's manually.
+If you wish to help or offer feature suggestions, please let me know.
