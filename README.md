@@ -222,6 +222,29 @@ foo.burp(outfile)
 Gives:
 ![alt text](https://github.com/richard-senior/GML/blob/main/ext.png?raw=true)
 
+### scale
+```
+foo = GrblCommand.processGrbl("a.nc","a_.nc")
+# Scales the entire file by a factor of n (so 2 would be twice as big, 0.5 would be twice as small)
+foo = foo.scale(2)
+foo.burp(outfile)
+```
+
+Gives:
+![alt text](https://github.com/richard-senior/GML/blob/main/scale.png?raw=true)
+
+
+### chaining functions
+You can perform multiple operations as follows:
+```
+foo = GrblCommand.processGrbl("a.nc","a_.nc")
+foo = foo.rotate(45, 0, 0)
+foo = foo.translate(10,0)
+foo.burp(outfile)
+```
+Which would rotate and then move the whole grbl file
+
+
 ### future
 Hopefully I'll provide:
 ```
