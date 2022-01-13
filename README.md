@@ -55,7 +55,11 @@ foo = GrblCommand.processGrbl("/temp/raw.nc","/temp/processed.nc")
 # You may use the response (foo) to continue working on the GCode if desired, or just ignore it.
 ```
 
-## example
+## Example
+
+Begin by creating a path in Inkscape etc. (an SVG):
+
+![alt text](https://github.com/richard-senior/GML/blob/main/a.svg?raw=true)
 
 
 
