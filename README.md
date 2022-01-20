@@ -225,6 +225,11 @@ Gives:
 ![alt text](https://github.com/richard-senior/GML/blob/main/ext.png?raw=true)
 
 ### scale
+Scaling is done by multiplying each x,y coordinate by the scale factor and
+recalculating arcs etc. In this respect it is very much like a 'dilate' with the
+centre of dilation being 0,0.
+If you wish to just globally increase or decrease the size of the whole GRBL file
+this is probably the best method.
 
 ```
 foo = GrblCommand.processGrbl("a.nc","a_.nc")
