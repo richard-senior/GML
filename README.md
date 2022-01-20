@@ -243,6 +243,68 @@ Gives:
 ![alt text](https://github.com/richard-senior/GML/blob/main/scale.png?raw=true)
 
 
+### dilate
+[Dilation](https://simple.wikipedia.org/wiki/Dilation_(geometry)) is a scaling process which
+requires a 'point' (like a perspective point) from which the scaling is performed.
+Most of the time you can simply use 'scale' or 'offset'. Useful in some situations.
+
+### constants
+GrblCommand has a set of constants which can be altered at any time (static variables)
+they cause the various functions to behave differently, each having some use or other.
+
+#### GrblCommand.depth_step
+For example set GrblCommand.depth_step = -0.35
+When doing 'extrude' this determines the increments by which each
+new iteration is made deeper. It also determines the depth of the first cut.
+That is to say it is assumed that you will always start by setting Z=0 to be the place
+where the tool it just touching (a tiny amount above) the work surface. So -0.35 would cause the engraving
+depth to be 0.35mm (assuming you're working in mm).
+
+#### GrblCommand.evacuation_height
+For example GrblCommand.evacuation_height = 1 will set the safe distance above the job to be 1mm.
+That is, after each path is cut, the Z axis will lift to 1mm before fast travelling to the start of the next cut.
+
+#### GrblCommand.fast_travel_speed
+eg GrblCommand.fast_travel_speed = 800
+Sets the speed of fast travel for G00 commands (the speed at which the machine moves when NOT cutting)
+
+#### GrblCommand.cut_speed
+eg GrblCommand.cut_speed = 150
+The speed at which the machine moves when cutting.
+
+#### GrblCommand.autoBlockSort
+eg GrblCommand.autoBlockSort = True (default True)
+Sorts each block such that we start by cutting blocks closest to 0,0 and end with the
+block furthest form 0, 0. ie. attempts to reduce fast travel time.
+Often you may wish to disable this because your GRBL file has an path cutting order which must be maintained.
+
+#### GrblCommand.dwell_after_block
+eg GrblCommand.dwell_after_block = True (false by default)
+At the end of each path (block) the machine will rise to the safe height, travel to 0,0, lower to Z=0 and
+'dwell' for a number of seconds. This allows stop the machine if you need to without losing your home between path cuts.
+Useful for testing out new GRBL files, but in most cases it's very time consuming.
+Only works if your machine supports G04 Dwell commands.
+
+#### GrblCommand.auto_number_lines
+ie GrblCommand.auto_number_lines = True (default false).
+Causes each line in the output .nc file to be prefixed by N??
+That is, line numbers. Some machines do not support line numbering (won't ignore it)
+This is not useful initially, but eventually this may be useful for loops and conditional statements.
+
+#### GrblCommand.auto_number_blocks
+ie GrblCommand.auto_number_blocks = True
+Causes each unique path (block) to be prefixed with O??
+That is each unique path is numbered.
+Some machines do not support block numbering (won't ignore it).
+Not initially useful, but may eventually be helpful for loops and conditional statements.
+
+#### GrblCommand.auto_decurve
+ie GrblCommand.auto_decurve = True
+Causes any G02 or G03 (arc) command to be replaced by a series of G01 commands which emulate
+a the curves. This is done based on tool_diameter. That is to say, each arc is split into lengths
+the size of the radius of the tool, such that the curve is unlikely to appear bumpy.
+Some people prefer to work only with G01 commands as it allows for easier manual editing of the GCODE.
+
 ### chaining functions
 
 You can perform multiple operations as follows:
