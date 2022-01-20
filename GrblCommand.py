@@ -18,12 +18,14 @@ class GrblCommand:
               'blocks' of commands based on various rules
             * Sanitising, sorting and other manipulations of blocks of commands
     """
+    order = ["O", "N", "G", "M", "X", "Y", "Z", "H", "I", "J", "K", "L", "A", "B", "C", "D", "E", "P", "Q", "R", "S", "T", "U", "V", "W", "F"]
     # Enable O02 style line numbering of blocks of commands
     auto_number_blocks: bool = False
     # Enable N02 style line numbering
     auto_number_lines: bool = False
     # automatically sanitise GCODE into blocks
     auto_sanitise: bool = True
+    auto_decurve: bool = False
     # return to zero and dwell after every path
     dwell_after_block: bool = False
     tool_diameter: float = 1.0
@@ -32,33 +34,29 @@ class GrblCommand:
     cut_speed: int = 50
     spindle_rpm: int = 1000
     fast_travel_speed: int = 800
+    showIndices = False
+    autoBlockSort = True
     penetrate_speed: int = 50
-    command = i = j = r = k = comment = next = previous = None
-    x = y = z = None
-    p = None
-    f = None
-    s = None
-    o = None
-    n = None
+    max_dp = 4
+    vals = None
+    next = previous = None
     line = None
     inComment = False
     visible = True
     meta = None
-    max_dp = 6
-    min_dp = 2
     block = 0
     blockIndex = -1
-    showIndices = False
-    autoBlockSort = True
 
     def __init__(self, line: str):
         self.line = line
+        self.vals = GrblCommand.getBlankValuesDictionary(None)
+
         if not line:
             # permit blank objects
             return
-        
+
         if line.strip().startswith("("):
-            self.comment = line
+            self.vals["COMMENT"] = line
             return
 
         if line.strip().startswith("%"):
@@ -69,7 +67,6 @@ class GrblCommand:
             line = GrblCommand.removeBracketedText(line)
 
         foo = line.strip().split()
-
         for c in foo:
             if not c:
                 continue
@@ -84,53 +81,47 @@ class GrblCommand:
             if self.inComment:
                 continue
 
-            # Python.. pfft
-            if first_char == "G":
-                self.command = c
-            elif first_char == "M":
-                self.command = c
-            elif first_char == "X":
-                self.x = self.parseParameter(c)
-            elif first_char == "Y":
-                self.y = self.parseParameter(c)
-            elif first_char == "Z":
-                self.z = self.parseParameter(c)
-            elif first_char == "I":
-                self.i = self.parseParameter(c)
-            elif first_char == "J":
-                self.j = self.parseParameter(c)
-            elif first_char == "S":
-                self.s = self.parseParameter(c)
-            elif first_char == "F":
-                self.f = self.parseParameter(c)
-            elif first_char == "O":
-                self.o = self.parseParameter(c)
-            elif first_char == "P":
-                self.p = self.parseParameter(c)
-            elif first_char == "N":
-                self.n = self.parseParameter(c)
-            elif first_char == "(":
+            if first_char == "(":
                 self.inComment = True
             else:
-                raise ValueError("not recognised GRBL syntax : " + c)
+                self.vals[first_char] = GrblCommand.parseParameter(c)
 
-    def getRawLine(self):
+    @staticmethod
+    def getBlankValuesDictionary(i: any) -> dict:
+        return {
+            "A": i, "B": i, "C": i, "D": i, "E": i,
+            "F": i, "G": i, "H": i, "I": i, "J": i,
+            "K": i, "L": i, "M": i, "N": i, "O": i,
+            "P": i, "Q": i, "R": i, "S": i, "T": i,
+            "U": i, "V": i, "W": i, "X": i, "Y": i,
+            "Z": i, "COMMENT": None
+        }
+
+    def getRawLine(self) -> str:
         return self.line
 
-    def prependObject(self, obj):
+    def prependObject(self, obj) -> 'GrblCommand':
         if not obj:
-             raise ValueError("must pass valid object")
+            raise ValueError("must pass valid object")
         if self.getPrevious():
             obj.setPrevious(self.getPrevious())
         self.setPrevious(obj)
         return obj
 
-    def prepend(self,line:str):
+    def prepend(self, line: str) -> 'GrblCommand':
         c = GrblCommand(line)
         return self.prependObject(c)
-    
+
+    def insertObjectAfter(self, obj) -> 'GrblCommand':
+        if not obj: return self
+        n = self.getNext()
+        obj.setPrevious(self)
+        if n:
+            obj.setNext(n)
+        return obj
+
     # add a single command, or a list of commands
-    def appendObjects(self, obj):
+    def appendObjects(self, obj) -> 'GrblCommand':
         if not obj: return None
         if not isinstance(obj, list): return self.appendObject(obj)
         lo = None
@@ -141,18 +132,16 @@ class GrblCommand:
                 lo = lo.appendObject(o)
         return lo
 
-    def appendObject(self, obj):
-        if not obj:
-            return
+    def appendObject(self, obj) -> 'GrblCommand':
+        if not obj: return self
         obj.setPrevious(self)
-        # self.setNext(obj)
         return obj
-    
-    def append(self,line:str):
+
+    def append(self, line: str) -> 'GrblCommand':
         c = GrblCommand(line)
         return self.appendObject(c)
 
-    def delete(self):
+    def delete(self) -> 'GrblCommand':
         if self.getPrevious():
             self.getPrevious().setNext(self.getNext())
         if self.getNext():
@@ -163,13 +152,16 @@ class GrblCommand:
             return self.getNext()
         return None
 
-    def isInBlock(self):
+    def isInBlock(self) -> bool:
         return self.blockIndex > -1
 
-    def isBlockStart(self):
-        if not self.x or not self.y:
+    def isBlockStart(self) -> bool:
+        c = self.getCommand()
+        x = self.getX()
+        y = self.getY()
+        if not self.getX() or not self.getY():
             return False
-        if "G00" == self.command:
+        if self.isCommand("G00"):
             return True
         if not self.getPrevious():
             return True
@@ -182,10 +174,10 @@ class GrblCommand:
             return False
         if self.isInBlock():
             # start of new fast travel indicates block end
-            if "G00" == self.command:
+            if self.isCommand("G00"):
                 return True
             # stop spindle indicates block end (mainly lasers)
-            if "M05" == self.command:
+            if self.isCommand("M05"):
                 return True
             # lifting the cutter indicates block end
             if self.isEvacuation():
@@ -200,8 +192,8 @@ class GrblCommand:
             pass
         return False
 
-    #sets the feed rate of all commands which operate at a
-    #depth less than or equal zero
+    # sets the feed rate of all commands which operate at a
+    # depth less than or equal zero
     def setCutSpeed(self, speed):
         if not speed:
             raise ValueError("must pass a valid depth")
@@ -211,37 +203,37 @@ class GrblCommand:
                 c = c.getNext()
                 continue
             if c.z:
-                if 0 >= c.z:
-                    c.f = speed
+                if 0 >= c.getZ():
+                    c.setF(speed)
             else:
                 if 0 >= c.getEstimatedZ():
-                    c.f = speed
+                    c.setF(speed)
             c = c.getNext()
 
-    #sets the feed rate of all commands which operate at a
-    #depth greater than or equal zero
+    # sets the feed rate of all commands which operate at a
+    # depth greater than or equal zero
     def setFastTravelSpeed(self, speed):
         if not speed:
             raise ValueError("must pass a valid speed and height")
         c = self.getFirst()
         while c:
-            if c.z:
-                if 0 <= c.z:
-                    c.f = speed
+            if c.nn("Z"):
+                if 0 <= c.getZ():
+                    c.setF(speed)
             else:
                 if 0 <= c.getEstimatedZ():
-                    c.f = speed
+                    c.setF(speed)
             c = c.getNext()
 
-    #should probaby pass a positive value here since
-    #zero will be where you start the job
+    # should probaby pass a positive value here since
+    # zero will be where you start the job
     def setEvacuateHeight(self,height):
         if not height:
             raise ValueError("must pass a valid depth")
         c = self.getFirst()
         while c:
             if c.isEvacuation():
-                c.z = height
+                c.setZ(height)
             c = c.getNext()
 
     def setPenetrateSpeed(self,speed):
@@ -250,11 +242,11 @@ class GrblCommand:
         c = self.getFirst()
         while c:
             if c.isPenetrate():
-                c.f = speed
+                c.setF(speed)
             c = c.getNext()
 
-    #should pass a negative number here
-    #since zero will be where you start the job
+    # should pass a negative number here
+    # since zero will be where you start the job
     def setPenetrateDepth(self, depth):
         if not depth:
             raise ValueError("must pass a valid depth")
@@ -264,30 +256,30 @@ class GrblCommand:
         c = self.getFirst()
         while c:
             if c.isPenetrate():
-                c.z = depth
+                c.setZ(depth)
             c = c.getNext()
 
     def isCutCommand(self):
-        return "G01" == self.getCommand() or "G02" == self.getCommand() or "G03" == self.getCommand()
+        return self.isCommand("G01") or self.isCommand("G02") or self.isCommand("G03")
 
     def isPenetrate(self) -> bool:
         if self.line and "Penetrate" in self.line:
             return True
-        if self.comment and "Penetrate" in self.comment:
+        if self.vals["COMMENT"] and "Penetrate" in self.vals["COMMENT"]:
             return True
-        if not self.z:
+        if not self.getZ() and 0 != self.getZ():
             return False
         ez = self.getEstimatedZ()
-        if self.z > ez:
+        if self.getZ() > ez:
             return False
-        if self.z < 0:
+        if self.getZ() < 0:
             return True
         return False
     
     def isEvacuation(self) -> bool:
         if self.isPenetrate():
             return False
-        if not self.z:
+        if not self.getZ():
             return False
         # TODO get estimated z and make sure this is higher
         return True
@@ -306,7 +298,7 @@ class GrblCommand:
                 return c
             c = c.getNext()
 
-    def getLength(self):
+    def getLength(self) -> int:
         c = self
         a = 0
         while c:
@@ -324,52 +316,64 @@ class GrblCommand:
                 return ret * -1
             c = c.getPrevious()
         return ret
-    
-    def getEstimated(self):
-        stop = self.getIndex()
-        ret = GrblCommand("")
-        ret.x = 0.0
-        ret.y = 0.0
-        ret.z = 0.0
-        ret.s = 1000.0
-        ret.f = 100.0
-        c = self.getFirst()
-        while c and c.getIndex() < stop:
-            if c.z: ret.z = c.z
-            if c.x: ret.x = c.x
-            if c.y: ret.y = c.y
-            if c.f: ret.f = c.f
-            if c.i: ret.i = c.i
-            if c.j: ret.j = c.j
-            if c.s: ret.s = c.s
-            if c.n: ret.n = c.n
-            if c.o: ret.o = c.o
-            if c.p: ret.p = c.p
-            c = c.getNext()
-        return ret
+
+    def getEstimated(self) -> 'GrblCommand':
+        try:
+            stop = self.getIndex()
+            ret = GrblCommand("")
+            c = self.getFirst()
+            while c and c.getIndex() < stop:
+                for l in c.vals:
+                    if c.nn(l):
+                        ret.vals[l] = c.vals[l]
+                c = c.getNext()
+            return ret
+        except:
+            return None
 
     def getEstimatedZ(self):
         foo = self.getEstimated()
-        return foo.z
+        if GrblCommand.isNone(foo) or (not foo.nn('Z')): return 0.0
+        return foo.getZ()
 
     def getEstimatedX(self):
         foo = self.getEstimated()
-        return foo.x
+        if GrblCommand.isNone(foo) or (not foo.nn('Z')): return 0.0
+        return foo.getX()
 
     def getEstimatedY(self):
         foo = self.getEstimated()
-        return foo.y
+        if GrblCommand.isNone(foo) or (not foo.nn('Z')): return 0.0
+        return foo.getY()
 
     def getEstimatedF(self):
         foo = self.getEstimated()
-        return foo.f
+        if GrblCommand.isNone(foo) or (not foo.nn('Z')): return GrblCommand.cut_speed
+        return foo.getF()
 
-    def getAverage(self, c) -> 'GrblCommand':
+    def getAverage(self) -> 'GrblCommand':
         # TODO this
-        if not c: raise ValueError("must pass a valid block")
-        foo = c.getFirst()
-        while foo:
-            foo = foo.getNext()
+        count = GrblCommand.getBlankValuesDictionary(0)
+        sum = GrblCommand.getBlankValuesDictionary(0.0)
+        sumn = GrblCommand.getBlankValuesDictionary(0.0)
+        ret = GrblCommand.getBlankValuesDictionary(None)
+        c = self.getFirst()
+        while c:
+            for l in c.vals:
+                if c.nn(l):
+                    v = c.vals[l]
+                    count[l] = count[l] + 1
+                    if v < 0:
+                        sumn[l] = sumn[l] + v
+                    else:
+                        sum[l] = sum[l] + v
+            c = c.getNext()
+
+        for l in count:
+            if not GrblCommand.isNone(count[l]) and count[l] > 0:
+                sum[l] = sum[l] - sumn[l]
+                ret[l] = sum[l] / count[l]
+        return ret
 
     def getMaxX(self, c) -> float:
         pass
@@ -385,12 +389,12 @@ class GrblCommand:
         c = block.getFirst()
         cutSpeedSet = False
         while c:
-            #remove blank lines and comments
+            # remove blank lines and comments
             if c.isBlank() or c.isComment():
                 c = c.delete()
                 continue
             if c.getIndex() == 0:
-                if not c.x and not c.y:
+                if not c.getX() and not c.getY():
                     raise ValueError("first command of a block must specify x and y? Is this a bug?")
                 c.setCommand("G00")
                 c.setF(GrblCommand.fast_travel_speed)
@@ -400,30 +404,36 @@ class GrblCommand:
             elif c.getIndex() == 1:
                 if not c.isPenetrate():
                     o = GrblCommand("G01 Z-0.0 F50")
-                    o.z = GrblCommand.depth_step
-                    o.f = GrblCommand.penetrate_speed
+                    o.setZ(GrblCommand.depth_step)
+                    o.setF(GrblCommand.penetrate_speed)
                     c = c.prependObject(o)
                     continue
                 else:
-                    c.z = GrblCommand.depth_step
+                    c.setZ(GrblCommand.depth_step)
             else:
-                #remove all subsequent penetrate or evacuate commands 
-                if c.z and not c.y and not c.x:
+                # remove all subsequent penetrate or evacuate commands 
+                if c.getZ() and not c.getY() and not c.getX():
                     c = c.delete()
                     continue
-                #remove all depth parameters following penetrate
-                c.z = None
-                
+                # remove all depth parameters following penetrate
+                c.setZ(None)
+
                 if c.isCutCommand():
                     if not cutSpeedSet:
                         c.setF(GrblCommand.cut_speed)
                         cutSpeedSet = True
                     else:
-                        c.f = None
-            
+                        c.setF(None)
+
+                if c.nn("I") and c.nn("J") and GrblCommand.auto_decurve:
+                    # TODO interpolate points in the curve
+                    c.setCommand("G01")
+                    c.setI(None)
+                    c.setJ(None)
+
             c = c.getNext()
         return ret
-    
+
     def isMultiple(self):
         return self.getPrevious() or self.getNext()
 
@@ -459,9 +469,9 @@ class GrblCommand:
             ret.append(GrblCommand("G00 Z0"))
             ret.append(GrblCommand("G04 P10000"))
         else:
-            c = GrblCommand("G00 Z1.0 F100")            
-            c.z = GrblCommand.evacuation_height
-            c.f = GrblCommand.fast_travel_speed
+            c = GrblCommand("G00 Z1.0 F100")
+            c.setZ(GrblCommand.evacuation_height)
+            c.setF(GrblCommand.fast_travel_speed)
             return c
         return ret
 
@@ -476,6 +486,25 @@ class GrblCommand:
             c = c.getNext()
         return ret
 
+    # returns true if the given block represents a closed path
+    # that is, it's start and end point are the same (within tolerance)
+    def isBlockAClosedPath(self, blocknum: int) -> bool:
+        b = self.getBlock(blocknum)
+        if not b: return False
+        c = b.getFirst()
+        fx = fy = lx = ly = None
+        while c:
+            if c.nn("X"):
+                if GrblCommand.isNone(fx):
+                    fx = c.getX()
+                    fy = c.getY()
+                else:
+                    lx = c.getX()
+                    ly = c.getY()
+            c = c.getNext()
+        if GrblCommand.isNone(lx): return False
+        return (abs(lx - fx) < 0.05) and (abs(ly - fy) < 0.05)
+
     def getBlock(self, blockNum):
         if blockNum < 0:
             raise ValueError("blocks are a zero based array")
@@ -486,6 +515,12 @@ class GrblCommand:
                 return b
             bn = bn + 1
         return None
+
+    #gets just the block data without any homing etc.
+    def getRawBlocks(self) -> 'GrblCommand':
+        foo = self.__deepcopy__()
+        foo.deleteAllNonBlock()
+        return foo.getFirst()
 
     # returns all blocks as an array of command objects
     def getBlocks(self) -> List['GrblCommand']:
@@ -581,40 +616,24 @@ class GrblCommand:
         return "".join(saved_chars)
 
     def isBlank(self):
-        if (
-            not self.command
-            and not self.comment
-            and not self.x
-            and not self.y
-            and not self.z
-            and not self.f
-            and not self.i
-            and not self.j
-            and not self.s
-            and not self.n
-            and not self.o
-            and not self.p
-        ):
-            return True
-        return False
+        for l in self.vals:
+            if self.nn(l):
+                return False
+        return True
+
+    def removeArc(self):
+        if "G02" != self.getCommand() and "G03" != self.getCommand():
+            return
+        self.setCommand("G01")
+        self.setI(None)
+        self.setJ(None)
 
     def makeBlank(self):
-        self.command = None
-        self.x = None
-        self.y = None
-        self.z = None
-        self.f = None
-        self.i = None
-        self.j = None
-        self.s = None
-        self.n = None
-        self.o = None
-        self.p = None
-        self.comment = None
+        self.vals = GrblCommand.getBlankValuesDictionary(None)
         self.visible = True
 
     def isComment(self):
-        if not self.command and self.comment:
+        if not self.getCommand() and self.vals["COMMENT"]:
             return True
         return False
 
@@ -629,8 +648,8 @@ class GrblCommand:
         self.blockIndex = p.blockIndex
         self.block = p.block
 
-        #are we in the middle of an ordinary block?
-        if  self.isInBlock():
+        # are we in the middle of an ordinary block?
+        if self.isInBlock():
             self.blockIndex += 1
         if self.isBlockEnd():
             self.blockIndex = -1
@@ -640,6 +659,14 @@ class GrblCommand:
 
     def getNext(self):
         return self.next
+
+    def getPreviousCoordinates(self) -> 'GrblCommand':
+        if not self.getPrevious(): return None
+        c = self.getPrevoius()
+        while c:
+            if c.nn("X"): return c
+            c = c.getPrevious()
+        return None
 
     def getPrevious(self):
         return self.previous
@@ -651,11 +678,10 @@ class GrblCommand:
         if not command:
             return
         first_char = command.strip()[0].upper()
-        if not first_char:
-            return
+        if not first_char: return
         if not first_char in "M G":
             raise ValueError("commands are M and G only")
-        self.command = command
+        self.vals[first_char] = GrblCommand.parseParameter(command)
 
     def setMeta(self, meta):
         self.meta = meta
@@ -670,7 +696,7 @@ class GrblCommand:
         return float(s)
 
     def floatToStr(f, dp):
-        foo = round(f,dp)
+        foo = round(f, dp)
         float_string = repr(foo)
         if 'e' in float_string:  # detect scientific notation
             digits, exp = float_string.split('e')
@@ -691,39 +717,39 @@ class GrblCommand:
         if not dp and 0 != dp:
             raise ValueError("must supply a decimal format pattern")
         return str(round(d, dp))
-    
-    def getNearestBlock(self,blocks):
+
+    def getNearestBlock(self, blocks):
         if not blocks:
             raise ValueError("must supply some blocks")
         x = None
         y = None
         if self.isBlock():
             foo = self.getLast()
-            if foo.x and foo.y:
-                x = foo.x
-                y = foo.y
+            if foo.getX() and foo.getY():
+                x = foo.getX()
+                y = foo.getY()
             else:
                 x = foo.getEstimatedX()
                 y = foo.getEstimatedY()
         if not x or not y:
-            if not self.x or not self.y:
-                if 0.0 != self.x and 0.0 != self.y:
+            if not self.getX() or not self.getY():
+                if 0.0 != self.getX() and 0.0 != self.getY():
                     raise ValueError("can't compare self to blocks because I have no x or y coordinates")
-            x = self.x
-            y = self.y
+            x = self.getX()
+            y = self.getY()
         d = 1000000
         o = None
         for b in blocks:
             foo = b.getFirst()
-            if not foo.x or not foo.y:
+            if not foo.getX() or not foo.getY():
                 raise ValueError("blocks contains something that doesn't seem to be a block")
-            td = math.sqrt((x - foo.x) ** 2 + (y - foo.y) ** 2)
+            td = math.sqrt((x - foo.getX()) ** 2 + (y - foo.getY()) ** 2)
             if td < d:
                 d = td
                 o = foo
         return o
 
-    def isSameBlock(self,other):
+    def isSameBlock(self, other):
         if not self.isBlock():
             return self == other
         if not other.isBlock():
@@ -737,51 +763,49 @@ class GrblCommand:
         # https://yqnn.github.io/svg-path-editor/
         # dilation: https://github.com/bbecquet/Leaflet.PolylineOffset/blob/master/leaflet.polylineoffset.js
         r = ""
-        if not self.command: return r
-        if not self.x and not self.y: return r
+        if not self.getCommand(): return r
+        if not self.getX() and not self.getY(): return r
 
-        if "G00" == self.command:
-            r = r + " M " + str(self.x) + " " + str(self.y) + ", "
-        elif "G01" == self.command:
-            r = r + " L " + str(self.x) + " " + str(self.y) + ", "        
+        if self.isCommand("G00"):
+            r = r + " M " + str(self.getX()) + " " + str(self.getY()) + ", "
+        elif self.isCommand("G01"):
+            r = r + " L " + str(self.getX()) + " " + str(self.getY()) + ", "
         
         if len(r) > 0: return r
         
-        if "G02" == self.command:
-            if not self.i and not self.j: raise ValueError("G02 has no i or j")
+        if self.isCommand("G02"):
+            if not self.getI() and not self.getJ(): raise ValueError("G02 has no i or j")
             r = r + " L " + str(ox) + " " + str(oy) + ", "
-            # r = r + " A " + str(ox + self.i) + " " + str(ox + self.j) + " 0 0 0 " + str(self.x) + " " + str(self.y) + ", "
-        elif "G03" == self.command:
-            if not self.i and not self.j: raise ValueError("G02 has no i or j")
+        elif self.isCommand("G03"):
+            if not self.getI() and not self.getJ(): raise ValueError("G02 has no i or j")
             r = r + " L " + str(ox) + " " + str(oy) + ", "
-            # r = r + " A " + str(ox + self.i) + " " + str(ox + self.j) + " 0 0 0 " + str(self.x) + " " + str(self.y) + ", "
         return r
 
     def translateCoordinates(self, ox, oy, angle):
-        if ox is None or oy is None or angle is None:
+        if GrblCommand.isNone(ox) or GrblCommand.isNone(oy) or GrblCommand.isNone(angle):
             return
-        if self.x is not None and self.y is not None:
+        if self.nn('X') and self.nn('Y'):
             a = math.radians(angle)
-            rx = ox + math.cos(a) * (self.x - ox) - math.sin(a) * (self.y - oy)
-            ry = oy + math.sin(a) * (self.x - ox) + math.cos(a) * (self.y - oy)
+            rx = ox + math.cos(a) * (self.getX() - ox) - math.sin(a) * (self.getY() - oy)
+            ry = oy + math.sin(a) * (self.getX() - ox) + math.cos(a) * (self.getY() - oy)
             # TODO allow for G02 and 3 commands where only i or j exist
             # or during sanitisation, put estimated x and y in there
-            if self.i is not None and self.j is not None:
+            if self.nn("I") and self.nn("J"):
                 # we must calculate the arc centre and then re-calculate the new arc centre
-                ai = self.x + self.i
-                aj = self.y + self.j
+                ai = self.getX() + self.getI()
+                aj = self.getY() + self.getJ()
                 ax = ox + math.cos(a) * (ai - ox) - math.sin(a) * (aj - oy)
                 ay = oy + math.sin(a) * (ai - ox) + math.cos(a) * (aj - oy)
-                self.i = ax - rx
-                self.j = ay - ry
-
-            self.x = rx
-            self.y = ry
+                self.setI(ax - rx)
+                self.setJ(ay - ry)
+            self.setX(rx)
+            self.setY(ry)
 
     def rotateBlock(self, angle, x, y, blockNum) -> 'GrblCommand':
         # TODO this
-        if x is None or y is None or angle is None or blockNum is None:
+        if GrblCommand.isNone(y) or GrblCommand.isNone(angle) or GrblCommand.isNone(blockNum):
             return
+
         block = self.getBlock(blockNum)
         if not block:
             return self.getFirst()
@@ -806,7 +830,7 @@ class GrblCommand:
     # rotates the whole grbl file by the given angle (degrees)
     # about the given x y coordinates
     def rotate(self, angle, x, y):
-        if x is None or y is None or angle is None:
+        if GrblCommand.isNone(x) or GrblCommand.isNone(y) or GrblCommand.isNone(angle):
             return
         if self.getPrevious() or self.getNext():
             c = self.getFirst()
@@ -817,24 +841,138 @@ class GrblCommand:
             self.translateCoordinates(x, y, angle)
         return self.getFirst()
 
+    def getNewDilatePoint(self, units: float, cx: float, cy: float) -> 'GrblCommand':
+        if not self.nn("X") or not self.nn("Y"):
+            return self
+        nx = cx + ((self.getX() - cx) * units)
+        ny = cy + ((self.getY() - cy) * units)
+        if self.nn("I") and self.nn("J"):
+            self.setI(nx - ((self.getX() - self.getI()) * units))
+            self.setJ(ny - ((self.getY() - self.getJ()) * units))
+        self.setX(nx)
+        self.setY(ny)
+
+    def dilate(self, units: float, centreX: float, centreY: float) -> 'GrblCommand':
+        # dilate algorithm : Tiller and Hanson
+        c = self.getFirst()
+        f = c
+        while c:
+            c.getNewDilatePoint(units, centreX, centreY)
+            c = c.getNext()
+        return f
+
+    # converts curves (G02,G03) into a set of points (G01) 
+    # that describe the same curve, based on
+    # the current tool diameter and other constants
+    # also replaces points that are very close with single points
+    @staticmethod
+    def pointify(c) -> 'GrblCommand':
+        if c is None: raise ValueError("Must pass a valid curve command")
+        p = c.getPreviousCoordinates()
+        if "G02" != c.getCommand() and "G03" != c.getCommand(): 
+            if "G01" != c.getCommand(): return c
+            # TODO remove points close together
+            return c
+        if not p: raise ValueError("found a curve with no start coordinates!?")
+        radius = math.sqrt(((c.getX() - (c.getX() - c.getI())) ** 2) + ((c.getY() - (c.getY() - c.getJ())) ** 2))
+        chord = math.sqrt(((c.getX() - p.getX()) ** 2) + ((c.getY() - p.getY()) ** 2))
+        theta = math.acos(1 - ((chord ** 2) / (2 * (radius ** 2))))
+        arclen = radius * theta
+        if arclen < GrblCommand.tool_diameter or chord < GrblCommand.tool_diameter:
+            c.removeArc()
+            return c
+        subarcs = arclen / GrblCommand.tool_diameter
+        sumarcs = subarcs
+        while sumarcs < (arclen - subarcs):
+            # calculate interim XY
+            sumarcs += subarcs
+
+    def offset(self, offs: float) -> 'GrblCommand':
+        copy = self.__deepcopy__()
+        c = copy.getFirst()
+        if not c.getNext(): return c
+        f = c
+        x1 = x2 = y1 = y1 = None
+        while c:
+            if not c.nn("X") or not c.nn("Y"): 
+                c = c.getNext()
+                continue
+            if c.nn("I"):
+                # TODO not this!
+                c.removeArc()
+            if GrblCommand.isNone(x1):
+                x1 = c.getX()
+                y1 = c.getY()
+                c = c.getNext()
+                continue
+            elif GrblCommand.isNone(x2):
+                x2 = c.getX()
+                y2 = c.getY()
+            # tangential slope approximation
+            try:
+                slope = (y2 - y1) / (x2 - x1)
+                # perpendicular slope
+                pslope = -1/slope  # (might be 1/slope depending on direction of travel)
+            except ZeroDivisionError:
+                x2 = y2 = None
+                c = c.getNext()
+                continue
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+
+            sign = ((pslope > 0) == (x1 > x2)) * 2 - 1
+            delta_x = sign * offs / ((1 + pslope**2)**0.5)
+            delta_y = pslope * delta_x
+            nx = mid_x + delta_x
+            ny = mid_y + delta_y
+
+            if c.nn("I"):
+                # TODO recalculate arcs and curves based on new X,Y point!
+                pass
+
+            # points.append((mid_x + delta_x, mid_y + delta_y))
+            c.setX(nx)
+            c.setY(ny)
+            x1, y1 = x2, y2
+            x2 = y2 = None
+            c = c.getNext()
+        # append a last coordinate to close the path
+        return f
+
+    def scale(self, units: float) -> 'GrblCommand':
+        c = self.getFirst()
+        f = c
+        while c:
+            nx = None
+            ny = None
+            if c.nn("X") and c.nn("Y"):
+                nx = (c.getX() * units)
+                ny = (c.getY() * units)
+                if c.nn("I") and c.nn("J"):
+                    c.setI(nx - ((c.getX() - c.getI()) * units))
+                    c.setJ(ny - ((c.getY() - c.getJ()) * units))
+            if nx: c.setX(nx)
+            if ny: c.setY(ny)
+            c = c.getNext()
+        return f
 
     # moves the whole file according to the x y coordinates
     # ie if x is -1 then the whole grbl file is moved 1 unit
     # left etc.
-    def translate(self, x, y):
+    def translate(self, x, y) -> 'GrblCommand':
         if self.getPrevious() or self.getNext():
             c = self.getFirst()
             while c:
-                if c.x is not None and x is not None:
-                    c.x = c.x + x
-                if c.y is not None and y is not None:
-                    c.y = c.y + y
+                if c.nn("X"):
+                    c.setX(c.getX() + x)
+                if c.nn("Y"):
+                    c.setY(c.getY() + y)
                 c = c.getNext()
         else:
-            if self.x is not None and x is not None:
-                self.x = self.x + x
-            if self.y is not None and y is not None:
-                self.y = self.y + y
+            if self.nn("X"):
+                self.setX(self.getX() + x)
+            if self.nn("Y"):
+                self.setY(self.getY() + y)
         return self
 
     def reverseBlocks(self) -> 'GrblCommand':
@@ -869,7 +1007,7 @@ class GrblCommand:
             comp = f
         return ret
 
-    def extrude(self,iterations,byblock):
+    def extrude(self, iterations, byblock):
         if not iterations:
             raise ValueError("must pass iterations number")
         ret = self.generateHeader()
@@ -909,7 +1047,7 @@ class GrblCommand:
         # https://www.freecodeformat.com/svg-editor.php
         px = 0
         py = 0
-        #TODO generate header as a string with template values for width and height etc.
+        # TODO generate header as a string with template values for width and height etc.
         ret = "<svg>"
         # for each 'path' (block) generate an SVG path object
         bret = ""
@@ -932,55 +1070,96 @@ class GrblCommand:
         ret = ret + "<\/svg>"
         return ret
 
+    def isCommand(self, command: str) -> bool:
+        c = self.getCommand()
+        if not c or not command: return False
+        return command == c
+
     def getCommand(self):
-        return self.command
+        if not self.isNone("G"):
+            return "G" + str(self.vals['G']).zfill(2)
+        if not self.isNone("M"):
+            return 'M' + str(self.vals['M']).zfill(2)
+        return None
 
-    def getX(self):
-        return GrblCommand.floatToStr(self.x, self.max_dp)
-        #return GrblCommand.doubleToString(self.x, self.max_dp)
+    def getLargestXY(self):
+        c = self.getFirst()
+        x = 0
+        y = 0
+        while c:
+            if c.getX() and abs(x) < abs(c.getX()):
+                x = c.getX()
+            if c.getY() and abs(y) < abs(c.getY()):
+                y = c.getY()
+            c = c.getNext()
+        return {"x": x, "y": y}
 
-    def setX(self, x):
-        self.x = x
+    def getFirstContactPoint(self) -> 'GrblCommand':
+        c = self.getFirst()
+        while c:
+            if self.isCommand("G00"):
+                return c
+        return None
 
-    def getY(self):
-        return GrblCommand.floatToStr(self.y, self.max_dp)
-
-    def getZ(self):
-        return GrblCommand.floatToStr(self.z, self.max_dp)
-
-    def setZ(self, z):
-        self.z = z
-
-    def getI(self):
-        return GrblCommand.floatToStr(self.i, self.max_dp)
-
-    def getJ(self):
-        return GrblCommand.floatToStr(self.j, self.max_dp)
-
-    def getF(self):
-        return(str(int(self.f)))
-
-    def setF(self, f):
-        self.f = f
-
-    def getS(self):
-        return GrblCommand.floatToStr(self.s, self.max_dp)
-
-    def setS(self, s):
-        self.s = s
-    
-    def getP(self):
-        return GrblCommand.floatToStr(self.p, self.max_dp)
-
-    def setP(self, p):
-        self.p = p
+    def getParameterAsString(self, paramname: str) -> any:
+        ret = self.vals[paramname]
+        if ret is None and (0 != ret): return None
+        if isinstance(ret, float):
+            return GrblCommand.floatToStr(self.vals[paramname], GrblCommand.max_dp)
+        elif isinstance(ret, int):
+            return str(ret).zfill(2)
+        else:
+            return str(ret)
 
     @staticmethod
-    def parseParameter(c):
+    def isNone(obj: any) -> bool:
+        # pfft
+        return (obj is None and (0 != obj))
+
+    # Return true if the given parameter exists and is not null
+    def nn(self, param: str) -> bool:
+        ret = self.vals[param]
+        return not GrblCommand.isNone(ret)
+
+    def getComment(self): return self.vals["COMMENT"]
+    def setComment(self, comment: str): self.vals["COMMENT"] = comment
+    def getX(self): return self.vals["X"]
+    def setX(self, x: float): self.vals["X"] = x
+    def getStrX(self): return self.getParamAsString("X")
+    def getY(self): return self.vals["Y"]
+    def setY(self, y: float): self.vals["Y"] = y
+    def getStrY(self): return self.getParamAsString("Y")
+    def getZ(self): return self.vals["Z"]
+    def setZ(self, z: float): self.vals["Z"] = z
+    def getStrZ(self): return self.getParamAsString("Z")
+    def getI(self): return self.vals["I"]
+    def setI(self, i: float): self.vals["I"] = i
+    def getStrI(self): return self.getParamAsString("I")
+    def getJ(self): return self.vals["J"]
+    def setJ(self, j: float): self.vals["J"] = j
+    def getStrJ(self): return self.getParamAsString("J")
+    def getF(self): return self.vals["F"]
+    def setF(self, f: float): self.vals["F"] = f
+    def getStrF(self): return self.getParamAsString("F")
+    def getS(self): return self.vals["S"]
+    def setS(self, s: float): self.vals["S"] = s
+    def getStrS(self): return self.getParamAsString("S")
+    def getP(self): return self.vals["P"]
+    def setP(self, p: float): self.vals["P"] = p
+    def getStrP(self): return self.getParamAsString("P")
+
+    @staticmethod
+    def parseParameter(c: str) -> any:
         if not c:
             raise ValueError("cannot parse null value")
         foo = re.sub("[^0-9\\-\\.]", "", c)
-        return GrblCommand.stringToDouble(foo)
+        if foo:
+            if "." in foo:
+                return GrblCommand.stringToDouble(foo)
+            else:
+                return int(foo)
+        else:
+            return c
 
     @staticmethod
     def isValidDouble(d):
@@ -990,56 +1169,22 @@ class GrblCommand:
         return self.__str__()
 
     def __str__(self) -> str:
-        # TODO N01 style line numbers
+        ret = ""
         if not self.visible:
+            return ret
+
+        if not self.getCommand():
+            if self.getComment():
+                return self.getComment()
             return ""
-        if not self.command:
-            if self.comment:
-                return self.comment
-            return ""
 
-        ret = self.command
-
-        if GrblCommand.isValidDouble(self.x):
-            ret += " "
-            ret += "X"
-            ret += self.getX()
-
-        if GrblCommand.isValidDouble(self.y):
-            ret += " "
-            ret += "Y"
-            ret += self.getY()
-
-        if GrblCommand.isValidDouble(self.z):
-            ret += " "
-            ret += "Z"
-            ret += self.getZ()
-
-        if GrblCommand.isValidDouble(self.i):
-            ret += " "
-            ret += "I"
-            ret += self.getI()
-
-        if GrblCommand.isValidDouble(self.j):
-            ret += " "
-            ret += "J"
-            ret += self.getJ()
-
-        if GrblCommand.isValidDouble(self.f):
-            ret += " "
-            ret += "F"
-            ret += self.getF()
-
-        if GrblCommand.isValidDouble(self.s):
-            ret += " "
-            ret += "S"
-            ret += self.getS()
-
-        if GrblCommand.isValidDouble(self.p):
-            ret += " "
-            ret += "P"
-            ret += self.getP()
-
+        for o in GrblCommand.order:
+            if self.nn(o):
+                p = self.getParameterAsString(o)
+                if len(ret) == 0:
+                    ret = ret + o + p
+                else:
+                    ret = ret + " " + o + p
         return ret
 
     def getLine(self) -> str:
@@ -1084,18 +1229,18 @@ class GrblCommand:
         return ret
 
     @staticmethod
-    def fromSvg(inpath:str):
+    def fromSvg(inpath: str):
         curves = parse_file(inpath) # Parse an svg file into geometric curves
         gcode_compiler = Compiler(interfaces.Gcode, movement_speed=GrblCommand.fast_travel_speed, cutting_speed=GrblCommand.cut_speed, pass_depth=GrblCommand.depth_step * -1)
         gcode_compiler.append_curves(curves) 
         raw = gcode_compiler.compile(passes=1)
-        #replace M5 with G00 Z1
-        #replace G01 F800 with G00 F50 Z-0.35
+        # replace M5 with G00 Z1
+        # replace G01 F800 with G00 F50 Z-0.35
         c = GrblCommand.slurp(raw)
         return c
 
     @staticmethod
-    def slurpFile(inpath:str):
+    def slurpFile(inpath: str):
         f = open(inpath, "r")
         s = ""
         for line in f:
@@ -1104,7 +1249,7 @@ class GrblCommand:
         return GrblCommand.slurp(s)
 
     @staticmethod
-    def slurp(s:str):
+    def slurp(s: str):
         if not s: raise ValueError("must supply a valid GRBL string in lines delimited by newline character")
         ret = None
         for line in s.splitlines():
@@ -1112,10 +1257,10 @@ class GrblCommand:
             if not ret:
                 ret = c
                 continue
-            ret = ret.append(line)
+            ret = ret.appendObject(c)
         return ret.getFirst()
 
-    def burp(self,outpath:str):
+    def burp(self, outpath: str):
         try:
             os.remove(outpath)
         except OSError:
@@ -1145,7 +1290,7 @@ class GrblCommand:
             ret += 1
         return ret
     
-    def __oc__(self,s,o):
+    def __oc__(self, s, o):
         if s is None:
             if o is None:
                 return True
@@ -1157,25 +1302,18 @@ class GrblCommand:
             return False
         return o == s
 
-    def __eq__(self,other):
+    def __eq__(self, other):
         if not other:
             return False
+
         if not isinstance(other, self.__class__):
             return False
-        if not self.__oc__(self.command,other.command): return False
-        if not self.__oc__(self.x,other.x): return False
-        if not self.__oc__(self.y,other.y): return False
-        if not self.__oc__(self.z,other.z): return False
-        if not self.__oc__(self.i,other.i): return False
-        if not self.__oc__(self.j,other.j): return False
-        if not self.__oc__(self.s,other.s): return False
-        if not self.__oc__(self.f,other.f): return False
-        if not self.__oc__(self.n,other.n): return False
-        if not self.__oc__(self.o,other.o): return False
+
+        if not self.__oc__(self.vals, other.vals): return False
         if self.isBlock():
             if not other.isBlock(): return False
-            if not self.__oc__(self.block,other.block): return False
-            if not self.__oc__(self.blockIndex,other.blockIndex): return False
+            if not self.__oc__(self.block, other.block): return False
+            if not self.__oc__(self.blockIndex, other.blockIndex): return False
         else:
             if other.isBlock(): return False
         return True
@@ -1195,20 +1333,14 @@ class GrblCommand:
 
     def __copy__(self):
         n = type(self)("")
+        n.vals = self.vals.copy()
         n.line = self.line
-        n.command = self.command
-        n.z = self.z
-        n.x = self.x
-        n.y = self.y
-        n.s = self.s 
-        n.f = self.f
-        n.i = self.i
-        n.j = self.j
-        n.p = self.p
+        n.block = self.block
+        n.blockIndex = self.blockIndex
         return n
 
     @staticmethod
-    def processGrbl(infile:str, outfile:str) -> 'GrblCommand':
+    def processGrbl(infile: str, outfile: str) -> 'GrblCommand':
         commands:GrblCommand = GrblCommand.slurpFile(infile)
         commands = commands.sanitise()
         commands.burp(outfile)
@@ -1224,29 +1356,30 @@ class Processor():
 
 
 #fname = "test"
-#fname = "jolana_bevel_outline"
+# fname = "jolana_bevel_outline"
 #fname = "jolana_holes"
 #fname = "jolana_outline"
 #fname = "jolana_holes"
-fname = "a"
+# fname = "test"
 #testsvg = "jolana"
 #fname = testsvg
+fname = "a"
 dirname = "D:\.scripts\python\personal\GML"
 infile = dirname + "\\" + fname + ".nc"
 outfile = dirname + "\\" + fname + "_" + ".nc"
-
 
 GrblCommand.showIndices = False
 GrblCommand.depth_step = -0.35
 GrblCommand.evacuation_height = 1
 GrblCommand.fast_travel_speed = 800
-GrblCommand.cut_speed = 80
+GrblCommand.cut_speed = 150
 GrblCommand.autoBlockSort = True
 GrblCommand.dwell_after_block = False
-
 GrblCommand.auto_number_lines = False
 GrblCommand.auto_number_blocks = False
+GrblCommand.auto_decurve = False
+
 foo = GrblCommand.processGrbl(infile, outfile)
-foo = foo.extrude(3, True)
+#foo = foo.offset(-0.5)
 foo.burp(outfile)
 #Processor.processSvg(dirname + "\\a.svg", dirname + "\\a.gcode")
