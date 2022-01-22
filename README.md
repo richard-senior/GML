@@ -3,7 +3,9 @@
 GCode Markup Language
 
 ***This code is provided to you without any form of warrenty or support.
-It is assumed that you are a programmer who will know how to modify this code to suit your own ends.***
+It is assumed that you are a programmer who will know how to modify this code to suit your own ends.
+I made this to perform a very narrow set of tasks so it is unlikely to work for you without modification.
+***
 
 The intention is to eventually create something a little like [Linux CNC](http://linuxcnc.org/) for use
 with inexpensive low end (hobbyist) CNC engraving, drawing, and laser cutting machines.
