@@ -229,10 +229,13 @@ Gives:
 
 ### scale
 Scaling is done by multiplying each x,y coordinate by the scale factor and
-recalculating arcs etc. In this respect it is very much like a 'dilate' with the
-centre of dilation being 0,0.
+recalculating arcs etc. 
+
+In this respect it is identical to a 'dilate' (see below) with the centre of 
+dilation being 0, 0.
+
 If you wish to just globally increase or decrease the size of the whole GRBL file
-this is probably the best method.
+this is probably the best (simplest and fastest) method.
 
 ```
 foo = GrblCommand.processGrbl("a.nc","a_.nc")
@@ -248,8 +251,8 @@ Gives:
 
 ### dilate
 [Dilation](https://simple.wikipedia.org/wiki/Dilation_(geometry)) is a scaling process which
-requires a 'point' (like a perspective point) from which the scaling is performed.
-Most of the time you can simply use 'scale' or 'offset'. Useful in some situations.
+requires a 'point' (like a perspective point) from which the scaling is performed using simple trigonometry.
+Most of the time you can simply use 'scale' or 'offset'. However some may find this useful.
 
 ### offset
 Easier to explain in pictures. In the pictures below the result shown in blue is
@@ -258,11 +261,26 @@ as black.
 ie. draws the same shape smaller or larger than the original depending on the value of offset.
 
 ### pointify
-Converts any arcs (G02, G02) into a set of small straight lines (G01) that approximates the arcs.
+Converts any arcs (G02, G02) into a set of small straight lines (G01) that approximates the arc.
+
 The number of points used to replace each arc is determined by GrblCommand.min_point_distance.
-Also removes any points which are closer together than GrblCommand.min_point_distance
-This can be useful in several situations. Be careful not to set min_point_distance too small.
-This can be achieved automatically by setting GrblCommand.auto_decurve
+This can be useful in several situations, for example it makes manually editing a GCode file much easier
+since there is no need to calculate arc centres etc.
+
+Be careful not to set min_point_distance too small. This can be achieved automatically by setting GrblCommand.auto_decurve
+
+ie:
+
+### despeckle
+It is often the case (when exporting from SVG or using other methods to automatically create GCode) that too many
+control points are created. That is to say if we have a rounded corner which is smaller than the radius of the tool we're
+using, then three is no point in defining 3 points to decribe an arc that is never going to get cut.
+
+Or for example, points are defined which are closer together than the tolerance of the engraving machine.
+
+We can remove unecessary operations in the GCode file using despeckle.
+We can define the tool diameter and the tolerences of the machine and despeckle will remove any unecessary points.
+This is a little like the "path/simplify" command in Inkscape.
 
 ## The concept of 'blocks'
 In the examples above we have a single closed path (the shape of the letter A, which starts and ends
