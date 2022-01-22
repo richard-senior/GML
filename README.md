@@ -248,6 +248,19 @@ Gives:
 requires a 'point' (like a perspective point) from which the scaling is performed.
 Most of the time you can simply use 'scale' or 'offset'. Useful in some situations.
 
+### offset
+Easier to explain in pictures. In the pictures below the result shown in blue is
+GrblCommand.offset(0.9) and the result in red is offset(1.1) with the original shown
+as black.
+ie. draws the same shape smaller or larger than the original depending on the value of offset.
+
+### pointify
+Converts any arcs (G02, G02) into a set of small straight lines (G01) that approximates the arcs.
+The number of points used to replace each arc is determined by GrblCommand.min_point_distance.
+Also removes any points which are closer together than GrblCommand.min_point_distance
+This can be useful in several situations. Be careful not to set min_point_distance too small.
+This can be achieved automatically by setting GrblCommand.auto_decurve
+
 ### constants
 GrblCommand has a set of constants which can be altered at any time (static variables)
 they cause the various functions to behave differently, each having some use or other.
