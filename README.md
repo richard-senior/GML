@@ -262,6 +262,33 @@ Also removes any points which are closer together than GrblCommand.min_point_dis
 This can be useful in several situations. Be careful not to set min_point_distance too small.
 This can be achieved automatically by setting GrblCommand.auto_decurve
 
+## The concept of 'blocks'
+In the examples above we have a single closed path (the shape of the letter A, which starts and ends
+in the same place).
+But a whole GCode file may contain several paths, some of which may not be closed (may end in a different
+place to where it started).
+
+Some of the operations described above will work fine on a whole GCode file (translate or scale for example).
+However some will not work very well (offset) or at all.
+In these situations you could choose to break your GCode file into a number of other GCode files and process
+them separately.
+
+However, GrblCommand identifies 'blocks' of GCode based upon the movement of the Z axis and the use of G00
+fast travel commands. That is to say, when parsing a whole GCode file GrblCommand will notice when a particular
+path has started and finished cutting, based upon whether the Z axis is 'below zero' or 'above zero' and based
+upon whether G00 is being used to move to the start of the next path.
+
+GrblCommand breaks the GCode file into 'Blocks', and all of the described operations above can be applied to
+not just the whole GCode file, but to individual blocks within the Gcode file.
+
+So let's imagine we had two letter A's in a single GCode file, and we just wish to move the second letter slightly
+to the right of it's current position whilst leaving the first letter where it is.
+To do this we would 'translate' only the second block.
+
+So each of the above commands has a 'block' version.
+ie. GrblCommand.translate(10, 0) has the block equivelent : GrblCommand.translateBlock(1, 10, 0)
+ie. Translate block number 1, such that all X coordinates are 10 larger.
+
 ### constants
 GrblCommand has a set of constants which can be altered at any time (static variables)
 they cause the various functions to behave differently, each having some use or other.
