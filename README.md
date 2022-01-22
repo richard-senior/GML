@@ -180,6 +180,8 @@ Note that in future hopefully you will be able to directly export to SVG rather 
 
 Now we can use GrblCommand to modify the GCode directly.
 
+## Commands
+
 ### Rotate
 So perhaps we want to rotate the letter (to fit the blank material better etc.):
 
@@ -289,7 +291,7 @@ So each of the above commands has a 'block' version.
 ie. GrblCommand.translate(10, 0) has the block equivelent : GrblCommand.translateBlock(1, 10, 0)
 ie. Translate block number 1, such that all X coordinates are 10 larger.
 
-### constants
+## constants
 GrblCommand has a set of constants which can be altered at any time (static variables)
 they cause the various functions to behave differently, each having some use or other.
 
@@ -346,7 +348,7 @@ a the curves. This is done based on tool_diameter. That is to say, each arc is s
 the size of the radius of the tool, such that the curve is unlikely to appear bumpy.
 Some people prefer to work only with G01 commands as it allows for easier manual editing of the GCODE.
 
-### chaining functions
+## chaining functions
 
 You can perform multiple operations as follows:
 
@@ -360,7 +362,7 @@ foo.burp(outfile)
 Which would rotate and then move the whole grbl file
 
 
-### future
+## future
 Hopefully I'll provide:
 ```
 # Iteratively fill any closed path by dilating inwards with each iteration being 2mm smaller
