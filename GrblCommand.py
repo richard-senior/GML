@@ -1,3 +1,5 @@
+# pylint: disable = line-too-long, too-many-lines, no-name-in-module, import-error, multiple-imports, pointless-string-statement, wrong-import-order
+
 # pip3 install svg-to-gcode
 from typing import TypeVar, List
 import re
@@ -29,6 +31,7 @@ class GrblCommand:
     # return to zero and dwell after every path
     dwell_after_block: bool = False
     tool_diameter: float = 1.0
+    min_point_distance = 0.1
     depth_step: float = -0.25
     evacuation_height: float = 1
     cut_speed: int = 50
@@ -87,6 +90,17 @@ class GrblCommand:
                 self.vals[first_char] = GrblCommand.parseParameter(c)
 
     @staticmethod
+    def getBlankAncilliaryDictionary(i: any):
+        return {
+            "Ia": i, "Ja": i, "Ka": i,
+            "Xm": i, "Ym": i, "Iam": i, "Jam": i,
+            "radius": i, "theta": i, "chord": i,
+            "arclen": i, "startangle": i,
+            "slope": i, "pslope": i, "sign": i,
+            "rpu": i
+        }
+
+    @staticmethod
     def getBlankValuesDictionary(i: any) -> dict:
         return {
             "A": i, "B": i, "C": i, "D": i, "E": i,
@@ -100,6 +114,44 @@ class GrblCommand:
     def getRawLine(self) -> str:
         return self.line
 
+    # Calculates useful ancilliary information such as the 
+    # shortest distance to the previous point, the absolute 
+    # centre point of the curve, the radius
+    # sweep angle, chord length etc. For use in scaling etc.
+    # If self is a G02 or G03, also provides an alternative set of
+    # G01 commands (interpolates an arc into small straight lines,
+    # or 'pointifies' curves
+    def recalculateAncillaries(self):
+        if not self.nn("X") or not self.nn("Y"): return
+        self.anc = GrblCommand.getBlankAncilliaryDictionary(None)
+        # calculate anything straight line like here
+
+        p = self.getPreviousCoordinates()
+        if p:
+            self.anc["chord"] = math.sqrt(((self.getX() - p.getX()) ** 2) + ((self.getY() - p.getY()) ** 2))
+            try:
+                self.anc["slope"] = (self.getY() - p.getY()) / (self.getX() - p.getX())
+                self.anc["pslope"] = -1 / self.anc["slope"]
+                self.anc["sign"] = ((self.anc["pslope"] > 0) == (p.getX() > self.getX())) * 2 - 1
+                self.anc["Xm"] = (p.getX() + self.getX()) / 2
+                self.anc["Ym"] = (p.getY() + self.getY()) / 2
+            except: 
+                pass
+
+        if self.nn("I") and self.nn("J"):
+            # absolute centre point of the arc
+            self.anc["Ia"] = self.getX() - self.getI()
+            self.anc["Ja"] = self.getY() - self.getJ()
+            self.anc["radius"] = math.sqrt((self.getI() ** 2) + (self.getJ() ** 2))
+            self.anc["startangle"] = math.atan2(p.getY() - self.anc["Ja"], p.getX() - self.anc["Ia"])
+            # don't bother with trying to calulate teeny arcs
+            if GrblCommand.min_point_distance > self.anc["radius"]: return
+            if p:
+                self.anc["theta"] = math.acos(1 - ((self.anc["chord"] ** 2) / (2 * (self.anc["radius"] ** 2))))
+                # if "G02" == self.getCommand(): self.anc["theta"] *= -1
+                self.anc["arclen"] = abs(self.anc["radius"] * self.anc["theta"])
+                self.anc["rpu"] = abs(self.anc["theta"] / self.anc["arclen"])
+
     def prependObject(self, obj) -> 'GrblCommand':
         if not obj:
             raise ValueError("must pass valid object")
@@ -111,6 +163,24 @@ class GrblCommand:
     def prepend(self, line: str) -> 'GrblCommand':
         c = GrblCommand(line)
         return self.prependObject(c)
+
+    def replaceSelfWithObjects(self, obj: 'GrblCommand') -> 'GrblCommand':
+        if not obj: return self
+        if self.getPrevious():
+            self.getPrevious().setNext(obj.getFirst())
+        if self.getNext():
+            self.getNext().setPrevious(obj.getLast())
+        return obj.getLast()
+
+    def insertObjectBefore(self, obj: 'GrblCommand') -> 'GrblCommand':
+        if not obj: return self
+        if obj.isMultiple(): raise ValueError("inserting chains of objects before, not currently supported")
+        obj.setNext(self)
+        if self.getPrevious():
+            self.getPrevious().setNext(obj)
+            obj.setPrevious(self.getPrevious())
+        self.setPrevious(obj)
+        return self
 
     def insertObjectAfter(self, obj) -> 'GrblCommand':
         if not obj: return self
@@ -426,15 +496,12 @@ class GrblCommand:
                         c.setF(None)
 
                 if c.nn("I") and c.nn("J") and GrblCommand.auto_decurve:
-                    # TODO interpolate points in the curve
-                    c.setCommand("G01")
-                    c.setI(None)
-                    c.setJ(None)
+                    c.pointifySelf()
 
             c = c.getNext()
         return ret
 
-    def isMultiple(self):
+    def isMultiple(self) -> bool:
         return self.getPrevious() or self.getNext()
 
     def isBlock(self):
@@ -516,7 +583,7 @@ class GrblCommand:
             bn = bn + 1
         return None
 
-    #gets just the block data without any homing etc.
+    # gets just the block data without any homing etc.
     def getRawBlocks(self) -> 'GrblCommand':
         foo = self.__deepcopy__()
         foo.deleteAllNonBlock()
@@ -621,12 +688,13 @@ class GrblCommand:
                 return False
         return True
 
-    def removeArc(self):
+    def removeArc(self) -> 'GrblCommand':
         if "G02" != self.getCommand() and "G03" != self.getCommand():
             return
         self.setCommand("G01")
         self.setI(None)
         self.setJ(None)
+        return self
 
     def makeBlank(self):
         self.vals = GrblCommand.getBlankValuesDictionary(None)
@@ -662,7 +730,7 @@ class GrblCommand:
 
     def getPreviousCoordinates(self) -> 'GrblCommand':
         if not self.getPrevious(): return None
-        c = self.getPrevoius()
+        c = self.getPrevious()
         while c:
             if c.nn("X"): return c
             c = c.getPrevious()
@@ -788,10 +856,7 @@ class GrblCommand:
             a = math.radians(angle)
             rx = ox + math.cos(a) * (self.getX() - ox) - math.sin(a) * (self.getY() - oy)
             ry = oy + math.sin(a) * (self.getX() - ox) + math.cos(a) * (self.getY() - oy)
-            # TODO allow for G02 and 3 commands where only i or j exist
-            # or during sanitisation, put estimated x and y in there
             if self.nn("I") and self.nn("J"):
-                # we must calculate the arc centre and then re-calculate the new arc centre
                 ai = self.getX() + self.getI()
                 aj = self.getY() + self.getJ()
                 ax = ox + math.cos(a) * (ai - ox) - math.sin(a) * (aj - oy)
@@ -800,32 +865,6 @@ class GrblCommand:
                 self.setJ(ay - ry)
             self.setX(rx)
             self.setY(ry)
-
-    def rotateBlock(self, angle, x, y, blockNum) -> 'GrblCommand':
-        # TODO this
-        if GrblCommand.isNone(y) or GrblCommand.isNone(angle) or GrblCommand.isNone(blockNum):
-            return
-
-        block = self.getBlock(blockNum)
-        if not block:
-            return self.getFirst()
-
-        blocks:GrblCommand = self.getBlocks()
-        if not blocks or len(blocks) == 0:
-            return
-        ret = self.getHeader()
-        for b in blocks:
-            if blockNum == b.block:
-                c = b.getFirst()
-                while c:
-                    c.translateCoordinates(x, y, angle)
-                    c = c.getNext()
-                foo = self.sanitiseBlock(c)
-                ret = ret.appendBlock(foo)
-            else:
-                ret = ret.appendBlock(b)
-        ret = ret.append(self.generateFooter())
-        return ret
 
     # rotates the whole grbl file by the given angle (degrees)
     # about the given x y coordinates
@@ -841,100 +880,122 @@ class GrblCommand:
             self.translateCoordinates(x, y, angle)
         return self.getFirst()
 
+
     def getNewDilatePoint(self, units: float, cx: float, cy: float) -> 'GrblCommand':
         if not self.nn("X") or not self.nn("Y"):
             return self
         nx = cx + ((self.getX() - cx) * units)
         ny = cy + ((self.getY() - cy) * units)
+        chord = math.sqrt(((nx - self.getX()) ** 2) + ((ny - self.getY()) ** 2))
         if self.nn("I") and self.nn("J"):
-            self.setI(nx - ((self.getX() - self.getI()) * units))
-            self.setJ(ny - ((self.getY() - self.getJ()) * units))
+            # make centre points absolute
+            ocx = self.getX() - self.getI()
+            ocy = self.getY() - self.getJ()
+            # calculate new dilated centre points
+            ncx = cx + ((ocx - cx) * units)
+            ncy = cy + ((ocy - cy) * units)
+            # convert back to relative
+            self.setI(nx - ncx)
+            self.setJ(ny - ncy)
         self.setX(nx)
         self.setY(ny)
+        return self
 
     def dilate(self, units: float, centreX: float, centreY: float) -> 'GrblCommand':
         # dilate algorithm : Tiller and Hanson
         c = self.getFirst()
         f = c
         while c:
-            c.getNewDilatePoint(units, centreX, centreY)
+            # getNewDilatePoint can delete itself so make sure we use it in case it returns its previous
+            c = c.getNewDilatePoint(units, centreX, centreY)
             c = c.getNext()
         return f
 
     # converts curves (G02,G03) into a set of points (G01) 
-    # that describe the same curve, based on
-    # the current tool diameter and other constants
-    # also replaces points that are very close with single points
-    @staticmethod
-    def pointify(c) -> 'GrblCommand':
-        if c is None: raise ValueError("Must pass a valid curve command")
-        p = c.getPreviousCoordinates()
-        if "G02" != c.getCommand() and "G03" != c.getCommand(): 
-            if "G01" != c.getCommand(): return c
-            # TODO remove points close together
-            return c
-        if not p: raise ValueError("found a curve with no start coordinates!?")
-        radius = math.sqrt(((c.getX() - (c.getX() - c.getI())) ** 2) + ((c.getY() - (c.getY() - c.getJ())) ** 2))
-        chord = math.sqrt(((c.getX() - p.getX()) ** 2) + ((c.getY() - p.getY()) ** 2))
-        theta = math.acos(1 - ((chord ** 2) / (2 * (radius ** 2))))
-        arclen = radius * theta
-        if arclen < GrblCommand.tool_diameter or chord < GrblCommand.tool_diameter:
-            c.removeArc()
-            return c
-        subarcs = arclen / GrblCommand.tool_diameter
-        sumarcs = subarcs
-        while sumarcs < (arclen - subarcs):
-            # calculate interim XY
-            sumarcs += subarcs
+    # that describe the same curve, based on the min_point_distance
+    def pointifySelf(self):
+        if "G02" != self.getCommand() and "G03" != self.getCommand(): return
+        # recalculate some basic data about this arc
+        self.recalculateAncillaries()
+        # was this arc too fiddly to bother with or in some way incalculable?
+        if not self.anc["theta"]: return self.removeArc()
+        # calculte how many points to replace this arc with
+        pointcount = math.trunc(self.anc["arclen"] / GrblCommand.min_point_distance)
+        # for arcs with less than 2 points just convert directly to G01
+        if pointcount < 2: return self.removeArc()
+        # if the arc is too big, issue an error
+        if pointcount > 100:
+            raise ValueError("you should increase the min_point_distance or do not auto_decurve. This curve requires too many point iterations.")
+        # what is the angle between each interpolated point on the arc
+        subangle = self.anc["rpu"] * GrblCommand.min_point_distance
+        p = self.getPrevious()
+        n = None
+        s = 1
+        f = pointcount + 1
+        for i in range(s, f):
+            n = GrblCommand("G01 X0 Y0")
+            rads = self.anc["startangle"] - (subangle * i)
+            if "G02" == self.getCommand(): rads = self.anc["startangle"] + (subangle * i)
+            co = self.anc["radius"] * math.cos(rads)
+            si = self.anc["radius"] * math.sin(rads)
+            n.setX(self.anc["Ia"] + co)
+            n.setY(self.anc["Ja"] + si)
+            n.setPrevious(p)
+            p.setNext(n)
+            p = n
+        n.setNext(self)
+        self.setPrevious(n)
+        self.removeArc()
 
+    def despeckle(self):
+        c = self.getFirst()
+        if not c: return
+        o = c
+        while c:
+            c.recalculateAncillaries()
+            if c.anc["chord"] and GrblCommand.min_point_distance > c.anc["chord"]:
+                # what to do here if prev, self or next is an arc?
+                c.delete()
+            c = c.getNext()
+        return o
+
+    # pointifies (converts curves into short straight lines) 
+    # a whole block or whole grbl file  and removes any points 
+    # which are too close to each other to have any affect on 
+    # the outcome (despeckles the GRBL file)
+    def pointify(self) -> 'GrblCommand':
+        c = self.getFirst()
+        ret = c
+        while c:
+            c.pointifySelf()
+            c = c.getNext()
+        return ret
+
+    # offsets a set off points inwards or outwards
+    # see inkscape offset for more.
+    # positive
     def offset(self, offs: float) -> 'GrblCommand':
         copy = self.__deepcopy__()
-        c = copy.getFirst()
+        c: GrblCommand = copy.getFirst()
         if not c.getNext(): return c
         f = c
-        x1 = x2 = y1 = y1 = None
         while c:
-            if not c.nn("X") or not c.nn("Y"): 
+            if GrblCommand.isNone(c.getY()): 
                 c = c.getNext()
                 continue
+            c.recalculateAncillaries()
+            if GrblCommand.isNone(c.anc["Xm"]):
+                c = c.getNext()
+                continue
+            delta_x = c.anc["sign"] * offs / ((1 + c.anc["pslope"] ** 2) ** 0.5)
+            delta_y = c.anc["pslope"] * delta_x
+            nx = c.anc["Xm"] + delta_x
+            ny = c.anc["Ym"] + delta_y
+
             if c.nn("I"):
-                # TODO not this!
                 c.removeArc()
-            if GrblCommand.isNone(x1):
-                x1 = c.getX()
-                y1 = c.getY()
-                c = c.getNext()
-                continue
-            elif GrblCommand.isNone(x2):
-                x2 = c.getX()
-                y2 = c.getY()
-            # tangential slope approximation
-            try:
-                slope = (y2 - y1) / (x2 - x1)
-                # perpendicular slope
-                pslope = -1/slope  # (might be 1/slope depending on direction of travel)
-            except ZeroDivisionError:
-                x2 = y2 = None
-                c = c.getNext()
-                continue
-            mid_x = (x1 + x2) / 2
-            mid_y = (y1 + y2) / 2
-
-            sign = ((pslope > 0) == (x1 > x2)) * 2 - 1
-            delta_x = sign * offs / ((1 + pslope**2)**0.5)
-            delta_y = pslope * delta_x
-            nx = mid_x + delta_x
-            ny = mid_y + delta_y
-
-            if c.nn("I"):
-                # TODO recalculate arcs and curves based on new X,Y point!
-                pass
-
-            # points.append((mid_x + delta_x, mid_y + delta_y))
             c.setX(nx)
             c.setY(ny)
-            x1, y1 = x2, y2
-            x2 = y2 = None
             c = c.getNext()
         # append a last coordinate to close the path
         return f
@@ -1113,8 +1174,9 @@ class GrblCommand:
 
     @staticmethod
     def isNone(obj: any) -> bool:
-        # pfft
-        return (obj is None and (0 != obj))
+        # Lolz, python :)
+        foo = isinstance(obj, type(None))
+        return foo
 
     # Return true if the given parameter exists and is not null
     def nn(self, param: str) -> bool:
@@ -1342,7 +1404,7 @@ class GrblCommand:
     @staticmethod
     def processGrbl(infile: str, outfile: str) -> 'GrblCommand':
         commands:GrblCommand = GrblCommand.slurpFile(infile)
-        commands = commands.sanitise()
+        if GrblCommand.auto_sanitise: commands = commands.sanitise()
         commands.burp(outfile)
         return commands
 
@@ -1350,7 +1412,7 @@ class Processor():
     @staticmethod
     def processSvg(infile:str, outfile:str) -> GrblCommand:
         commands:GrblCommand = GrblCommand.fromSvg(infile)
-        commands = commands.sanitise()
+        if GrblCommand.auto_sanitise: commands = commands.sanitise()
         commands.burp(outfile)
         return commands
 
@@ -1378,8 +1440,12 @@ GrblCommand.dwell_after_block = False
 GrblCommand.auto_number_lines = False
 GrblCommand.auto_number_blocks = False
 GrblCommand.auto_decurve = False
+GrblCommand.auto_sanitise = True
 
 foo = GrblCommand.processGrbl(infile, outfile)
-#foo = foo.offset(-0.5)
+foo = foo.pointify()
+#foo = foo.scale(5)
+# foo = foo.dilate(0.5, -1, -1)
+# foo = foo.offset(-0.1)
 foo.burp(outfile)
 #Processor.processSvg(dirname + "\\a.svg", dirname + "\\a.gcode")
